@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Sessions - gateway-ia{% endblock %}
+{% block content %}
+<div class="toolbar">
+    <h1 id="session-count">Sessions ({{ sessions | length }})</h1>
+    <form method="post" action="{{ ui_prefix }}/sessions/clear">
+        <button class="btn btn-danger" type="submit"
+                onclick="return confirm('Vider toutes les sessions ?')">
+            Vider
+        </button>
+    </form>
+</div>
+<table>
+    <thead>
+        <tr>
+            <th>Status</th>
+            <th>Heure</th>
+            <th>Methode</th>
+            <th>Path</th>
+            <th>Code</th>
+            <th>Duree</th>
+            <th>Type</th>
+        </tr>
+    </thead>
+    <tbody id="session-tbody">
+        {% for s in sessions %}
+        <tr data-id="{{ s.id }}" style="cursor:pointer">
+            <td>
+                <span class="badge badge-{{ s.status.value }}">
+                    {{ s.status.value }}
+                </span>
+            </td>
+            <td>
+                <a href="{{ ui_prefix }}/sessions/{{ s.id }}">
+                    {{ s.created_at.strftime('%H:%M:%S') }}
+                </a>
+            </td>
+            <td><span class="badge badge-method">{{ s.method }}</span></td>
+            <td>{{ s.path }}{% if s.query_string %}?{{ s.query_string }}{% endif %}</td>
+            <td>
+                {% if s.status_code %}
+                <span class="
+                    {% if s.status_code < 300 %}status-2xx
+                    {% elif s.status_code < 500 %}status-4xx
+                    {% else %}status-5xx{% endif %}
+                ">{{ s.status_code }}</span>
+                {% else %}-{% endif %}
+            </td>
+            <td>{{ s.duration_ms | format_duration if s.duration_ms is not none else '-' }}</td>
+            <td>
+                {% if s.is_streaming %}
+                <span class="badge badge-streaming">stream</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p id="empty-msg" style="color: #8b949e; text-align: center; padding: 40px; {% if sessions %}display:none{% endif %}">
+    Aucune session enregistree. Envoyez une requete via le proxy pour commencer.
+</p>
+
+<div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+        <div class="modal-header">
+            <span id="modal-title">Session</span>
+            <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div>
+                <div class="modal-panel-title">Requete</div>
+                <pre id="modal-request">-</pre>
+            </div>
+            <div>
+                <div class="modal-panel-title">Reponse</div>
+                <pre id="modal-response">-</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const UI_PREFIX = "{{ ui_prefix }}";
+    const tbody = document.getElementById("session-tbody");
+    const countEl = document.getElementById("session-count");
+    const emptyMsg = document.getElementById("empty-msg");
+    const overlay = document.getElementById("modal-overlay");
+    const modalTitle = document.getElementById("modal-title");
+    const modalRequest = document.getElementById("modal-request");
+    const modalResponse = document.getElementById("modal-response");
+
+    function formatDuration(ms) {
+        if (ms === null || ms === undefined) return "-";
+        if (ms >= 1000) return (ms / 1000).toFixed(2) + " s";
+        return ms.toFixed(1) + " ms";
+    }
+
+    function statusClass(code) {
+        if (!code) return "";
+        if (code < 300) return "status-2xx";
+        if (code < 500) return "status-4xx";
+        return "status-5xx";
+    }
+
+    function escapeHtml(text) {
+        const d = document.createElement("div");
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function renderRow(s) {
+        const path = s.query_string ? s.path + "?" + s.query_string : s.path;
+        const codeHtml = s.status_code
+            ? `<span class="${statusClass(s.status_code)}">${s.status_code}</span>`
+            : "-";
+        const streamHtml = s.is_streaming
+            ? '<span class="badge badge-streaming">stream</span>'
+            : "";
+        return `<tr data-id="${s.id}" style="cursor:pointer">
+            <td><span class="badge badge-${s.status}">${s.status}</span></td>
+            <td><a href="${UI_PREFIX}/sessions/${s.id}">${s.created_at}</a></td>
+            <td><span class="badge badge-method">${s.method}</span></td>
+            <td>${escapeHtml(path)}</td>
+            <td>${codeHtml}</td>
+            <td>${formatDuration(s.duration_ms)}</td>
+            <td>${streamHtml}</td>
+        </tr>`;
+    }
+
+    async function refresh() {
+        try {
+            const res = await fetch(UI_PREFIX + "/api/sessions");
+            if (!res.ok) return;
+            const sessions = await res.json();
+            countEl.textContent = "Sessions (" + sessions.length + ")";
+            tbody.innerHTML = sessions.map(renderRow).join("");
+            emptyMsg.style.display = sessions.length ? "none" : "block";
+        } catch (e) {}
+    }
+
+    // Modal
+    function openModal(id) {
+        modalTitle.textContent = "Chargement...";
+        modalRequest.textContent = "";
+        modalResponse.textContent = "";
+        overlay.classList.add("active");
+
+        fetch(UI_PREFIX + "/api/sessions/" + id)
+            .then(r => r.json())
+            .then(data => {
+                const label = data.method + " " + data.path +
+                    (data.status_code ? " — " + data.status_code : "");
+                modalTitle.textContent = label;
+                modalRequest.textContent = data.request_body || "(vide)";
+                modalResponse.textContent = data.response_body || "(vide)";
+            })
+            .catch(() => {
+                modalTitle.textContent = "Erreur";
+                modalRequest.textContent = "Impossible de charger la session.";
+            });
+    }
+
+    function closeModal() {
+        overlay.classList.remove("active");
+    }
+
+    document.getElementById("modal-close").addEventListener("click", closeModal);
+    overlay.addEventListener("click", function(e) {
+        if (e.target === overlay) closeModal();
+    });
+    document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") closeModal();
+    });
+
+    tbody.addEventListener("click", function(e) {
+        // Don't intercept clicks on links
+        if (e.target.closest("a")) return;
+        const row = e.target.closest("tr[data-id]");
+        if (row) openModal(row.dataset.id);
+    });
+
+    setInterval(refresh, 3000);
+})();
+</script>
+{% endblock %}

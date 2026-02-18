@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Session {{ session.id }} - gateway-ia{% endblock %}
+{% block content %}
+<div class="toolbar">
+    <h1>Session {{ session.id }}</h1>
+    <a class="btn" href="{{ ui_prefix }}/">Retour</a>
+</div>
+
+<div class="panel">
+    <div class="panel-header">Informations</div>
+    <div class="panel-body">
+        <table class="meta-table">
+            <tr><td>ID</td><td>{{ session.id }}</td></tr>
+            <tr><td>Date</td><td>{{ session.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td></tr>
+            <tr>
+                <td>Status</td>
+                <td><span class="badge badge-{{ session.status.value }}">{{ session.status.value }}</span></td>
+            </tr>
+            <tr><td>Duree</td><td>{{ session.duration_ms | format_duration if session.duration_ms is not none else '-' }}</td></tr>
+            <tr>
+                <td>Streaming</td>
+                <td>{% if session.is_streaming %}<span class="badge badge-streaming">oui</span>{% else %}non{% endif %}</td>
+            </tr>
+            {% if session.error_message %}
+            <tr><td>Erreur</td><td style="color: #f87171;">{{ session.error_message }}</td></tr>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+    <div class="panel">
+        <div class="panel-header">
+            Requete
+            <span class="badge badge-method" style="margin-left: 8px;">{{ session.method }}</span>
+            {{ session.path }}{% if session.query_string %}?{{ session.query_string }}{% endif %}
+        </div>
+        <div class="panel-body">
+            <details>
+                <summary style="font-size: 12px; color: #8b949e; cursor: pointer;">Headers</summary>
+                <pre style="margin-top: 8px;">{% for k, v in session.request_headers.items() %}{{ k }}: {{ v }}
+{% endfor %}</pre>
+            </details>
+            {% if session.request_body %}
+            <h3 style="font-size: 12px; color: #8b949e; margin: 12px 0 8px;">Body</h3>
+            <pre>{{ session.request_body | decode_body | tojson_pretty }}</pre>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            Reponse
+            {% if session.status_code %}
+            <span class="
+                {% if session.status_code < 300 %}status-2xx
+                {% elif session.status_code < 500 %}status-4xx
+                {% else %}status-5xx{% endif %}
+            " style="margin-left: 8px;">{{ session.status_code }}</span>
+            {% endif %}
+        </div>
+        <div class="panel-body">
+            {% if session.response_headers %}
+            <details>
+                <summary style="font-size: 12px; color: #8b949e; cursor: pointer;">Headers</summary>
+                <pre style="margin-top: 8px;">{% for k, v in session.response_headers.items() %}{{ k }}: {{ v }}
+{% endfor %}</pre>
+            </details>
+            {% endif %}
+            {% if session.response_body %}
+            {% if session.is_streaming %}
+            <h3 style="font-size: 12px; color: #8b949e; margin: 12px 0 8px;">Message</h3>
+            <pre style="white-space: pre-wrap;">{{ session.response_body | decode_body | aggregate_sse }}</pre>
+            <details style="margin-top: 8px;">
+                <summary style="font-size: 12px; color: #8b949e; cursor: pointer;">SSE brut</summary>
+                <pre style="margin-top: 8px; font-size: 11px; color: #8b949e;">{{ session.response_body | decode_body }}</pre>
+            </details>
+            {% else %}
+            <h3 style="font-size: 12px; color: #8b949e; margin: 12px 0 8px;">Body</h3>
+            <pre>{{ session.response_body | decode_body | tojson_pretty }}</pre>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
