@@ -78,6 +78,16 @@ By default, the proxy listens on `http://localhost:8080`.
 
 ## Docker
 
+### Pre-built image
+
+```bash
+docker run --rm --name llmiddler -p 8080:8080 \
+  -v ./config.yaml:/app/config.yaml:ro \
+  redteamsfr/llmiddler:v1.0.0
+```
+
+### Build locally
+
 ```bash
 docker build -t llmiddler .
 docker run -p 8080:8080 llmiddler

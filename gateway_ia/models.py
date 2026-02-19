@@ -15,7 +15,9 @@ class SessionStatus(str, Enum):
 
 class Session(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex[:12])
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     # Request
     method: str

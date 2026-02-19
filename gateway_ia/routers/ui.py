@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -59,6 +60,14 @@ def _aggregate_sse(value: str) -> str:
     return "".join(parts) if parts else value
 
 
+def _localtime(value: datetime) -> datetime:
+    """Convert a UTC datetime to the system local timezone."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone()
+
+
+templates.env.filters["localtime"] = _localtime
 templates.env.filters["decode_body"] = _decode_body
 templates.env.filters["tojson_pretty"] = _tojson_pretty
 templates.env.filters["format_duration"] = _format_duration
@@ -74,7 +83,7 @@ async def session_list(request: Request):
         {
             "request": request,
             "sessions": [
-                s for s in store.list_all() if s.path.startswith("/v1")
+                s for s in store.list_all() if "favico" not in s.path and "_ui" not in s.path
             ],
             "ui_prefix": config.ui.prefix,
         },
@@ -131,12 +140,12 @@ async def api_session_detail(request: Request, session_id: str):
 @router.get("/api/sessions")
 async def api_sessions(request: Request):
     store = request.app.state.store
-    sessions = [s for s in store.list_all() if s.path.startswith("/v1")]
+    sessions = [s for s in store.list_all() if "favico" not in s.path and "_ui" not in s.path]
     return [
         {
             "id": s.id,
             "status": s.status.value,
-            "created_at": s.created_at.strftime("%H:%M:%S"),
+            "created_at": _localtime(s.created_at).strftime("%H:%M:%S"),
             "method": s.method,
             "path": s.path,
             "query_string": s.query_string,

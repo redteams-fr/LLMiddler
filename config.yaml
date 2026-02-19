@@ -12,4 +12,4 @@ ui:
 
 logging:
   level: "INFO"
-  quiet: true
+  quiet: false

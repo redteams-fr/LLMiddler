@@ -11,7 +11,7 @@
     <div class="panel-body">
         <table class="meta-table">
             <tr><td>ID</td><td>{{ session.id }}</td></tr>
-            <tr><td>Date</td><td>{{ session.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td></tr>
+            <tr><td>Date</td><td>{{ (session.created_at | localtime).strftime('%Y-%m-%d %H:%M:%S') }}</td></tr>
             <tr>
                 <td>Status</td>
                 <td><span class="badge badge-{{ session.status.value }}">{{ session.status.value }}</span></td>

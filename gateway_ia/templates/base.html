@@ -145,8 +145,8 @@
             background: #161b22;
             border: 1px solid #30363d;
             border-radius: 8px;
-            width: 90%;
-            max-width: 1100px;
+            width: 95%;
+            max-width: 1400px;
             max-height: 85vh;
             display: flex;
             flex-direction: column;
@@ -177,13 +177,163 @@
             grid-template-columns: 1fr 1fr;
             gap: 16px;
         }
+        .modal-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
         .modal-panel-title {
             font-size: 12px;
             color: #8b949e;
             font-weight: 600;
-            margin-bottom: 8px;
+        }
+        .btn-detail {
+            color: #8b949e;
+            text-decoration: none;
+            font-size: 15px;
+            line-height: 1;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        .btn-detail:hover { color: #58a6ff; background: #1c2641; text-decoration: none; }
+        .btn-copy {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #8b949e;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn-copy:hover { background: #30363d; color: #c9d1d9; }
+        .btn-copy.active {
+            background: #1e3a5f;
+            color: #7dd3fc;
+            border-color: #7dd3fc55;
+        }
+        .chat-container {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 4px;
+            padding: 12px;
+            overflow-y: auto;
+            max-height: 60vh;
+        }
+        .chat-message {
+            margin-bottom: 12px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: #161b22;
+            border: 1px solid #21262d;
+        }
+        .chat-message:last-child { margin-bottom: 0; }
+        .chat-role {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 1px 6px;
+            border-radius: 3px;
+            margin-bottom: 6px;
+        }
+        .chat-role-user { background: #1c2641; color: #818cf8; }
+        .chat-role-assistant { background: #1b4332; color: #2dd4bf; }
+        .chat-role-system { background: #3b2f1e; color: #f59e0b; }
+        .chat-content {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #c9d1d9;
+        }
+        .chat-content p { margin-bottom: 8px; }
+        .chat-content p:last-child { margin-bottom: 0; }
+        .chat-content pre {
+            margin: 8px 0;
+        }
+        .chat-content code {
+            background: #1c2128;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .chat-content pre code {
+            background: none;
+            padding: 0;
+        }
+        .tools-container {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 4px;
+            padding: 12px;
+            overflow-y: auto;
+            max-height: 60vh;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .tool-card {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            padding: 12px;
+            flex: 1 1 340px;
+            max-width: 100%;
+        }
+        .tool-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #f0f6fc;
+            margin-bottom: 4px;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+        }
+        .tool-desc {
+            font-size: 12px;
+            color: #8b949e;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+        .tool-params {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+        .tool-params th {
+            background: #1c2128;
+            color: #8b949e;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            padding: 4px 8px;
+            text-align: left;
+            border-bottom: 1px solid #30363d;
+            font-size: 10px;
+        }
+        .tool-params td {
+            padding: 4px 8px;
+            border-bottom: 1px solid #21262d;
+            vertical-align: top;
+        }
+        .tool-params tr:last-child td { border-bottom: none; }
+        .tool-param-name {
+            color: #d2a8ff;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .tool-param-type {
+            color: #7ee787;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            white-space: nowrap;
+        }
+        .tool-param-desc { color: #8b949e; }
+        .tool-param-req {
+            color: #f59e0b;
+            font-weight: 700;
+            text-align: center;
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <nav>

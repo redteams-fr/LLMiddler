@@ -20,6 +20,7 @@
             <th>Code</th>
             <th>Duree</th>
             <th>Type</th>
+            <th></th>
         </tr>
     </thead>
     <tbody id="session-tbody">
@@ -30,11 +31,7 @@
                     {{ s.status.value }}
                 </span>
             </td>
-            <td>
-                <a href="{{ ui_prefix }}/sessions/{{ s.id }}">
-                    {{ s.created_at.strftime('%H:%M:%S') }}
-                </a>
-            </td>
+            <td>{{ (s.created_at | localtime).strftime('%H:%M:%S') }}</td>
             <td><span class="badge badge-method">{{ s.method }}</span></td>
             <td>{{ s.path }}{% if s.query_string %}?{{ s.query_string }}{% endif %}</td>
             <td>
@@ -52,6 +49,7 @@
                 <span class="badge badge-streaming">stream</span>
                 {% endif %}
             </td>
+            <td><a href="{{ ui_prefix }}/sessions/{{ s.id }}" class="btn-detail" title="Detail">&#x2197;</a></td>
         </tr>
         {% endfor %}
     </tbody>
@@ -66,14 +64,30 @@
             <span id="modal-title">Session</span>
             <button class="modal-close" id="modal-close">&times;</button>
         </div>
-        <div class="modal-body">
-            <div>
-                <div class="modal-panel-title">Requete</div>
+        <div class="modal-body" id="modal-body">
+            <div id="panel-request">
+                <div class="modal-panel-header">
+                    <div class="modal-panel-title">Requete</div>
+                    <div>
+                        <button class="btn-copy" id="btn-chat-request">Chat</button>
+                        <button class="btn-copy" id="btn-tools-request">Tools</button>
+                        <button class="btn-copy" data-target="modal-request">Copier</button>
+                    </div>
+                </div>
                 <pre id="modal-request">-</pre>
+                <div id="modal-request-chat" class="chat-container" style="display:none"></div>
+                <div id="modal-request-tools" class="tools-container" style="display:none"></div>
             </div>
-            <div>
-                <div class="modal-panel-title">Reponse</div>
+            <div id="panel-response">
+                <div class="modal-panel-header">
+                    <div class="modal-panel-title">Reponse</div>
+                    <div>
+                        <button class="btn-copy" id="btn-chat-response" data-panel="response">Chat</button>
+                        <button class="btn-copy" data-target="modal-response">Copier</button>
+                    </div>
+                </div>
                 <pre id="modal-response">-</pre>
+                <div id="modal-response-chat" class="chat-container" style="display:none"></div>
             </div>
         </div>
     </div>
@@ -89,6 +103,23 @@
     const modalTitle = document.getElementById("modal-title");
     const modalRequest = document.getElementById("modal-request");
     const modalResponse = document.getElementById("modal-response");
+    const modalRequestChat = document.getElementById("modal-request-chat");
+    const modalResponseChat = document.getElementById("modal-response-chat");
+    const btnChatRequest = document.getElementById("btn-chat-request");
+    const btnChatResponse = document.getElementById("btn-chat-response");
+    const btnToolsRequest = document.getElementById("btn-tools-request");
+    const modalRequestTools = document.getElementById("modal-request-tools");
+    const modalBody = document.getElementById("modal-body");
+    const panelRequest = document.getElementById("panel-request");
+    const panelResponse = document.getElementById("panel-response");
+
+    // Raw data stored for chat rendering
+    let rawRequestBody = "";
+    let rawResponseBody = "";
+    // Current active view for request panel: "json" | "chat" | "tools"
+    let requestView = "json";
+
+    marked.setOptions({ breaks: true });
 
     function formatDuration(ms) {
         if (ms === null || ms === undefined) return "-";
@@ -109,6 +140,208 @@
         return d.innerHTML;
     }
 
+    function roleClass(role) {
+        if (role === "user") return "chat-role-user";
+        if (role === "assistant") return "chat-role-assistant";
+        return "chat-role-system";
+    }
+
+    function renderMessages(messages) {
+        return messages.map(function(msg) {
+            return '<div class="chat-message">' +
+                '<div class="chat-role ' + roleClass(msg.role) + '">' + escapeHtml(msg.role) + '</div>' +
+                '<div class="chat-content">' + marked.parse(msg.content || "") + '</div>' +
+                '</div>';
+        }).join("");
+    }
+
+    function renderResponseChat(text) {
+        // Try to extract content from OpenAI JSON response
+        var content = text;
+        try {
+            var parsed = JSON.parse(text);
+            if (parsed.choices && parsed.choices[0]) {
+                var msg = parsed.choices[0].message;
+                if (msg && msg.content) {
+                    content = msg.content;
+                }
+            }
+        } catch (e) {}
+        return '<div class="chat-message">' +
+            '<div class="chat-role chat-role-assistant">assistant</div>' +
+            '<div class="chat-content">' + marked.parse(content) + '</div>' +
+            '</div>';
+    }
+
+    function extractResponseContent(text) {
+        try {
+            var parsed = JSON.parse(text);
+            if (parsed.choices && parsed.choices[0]) {
+                var msg = parsed.choices[0].message;
+                if (msg && msg.content) return msg.content;
+            }
+        } catch (e) {}
+        if (text && text.trim() && text[0] !== '{') return text;
+        return null;
+    }
+
+    function formatParamType(schema) {
+        if (!schema) return "";
+        if (schema.type === "array" && schema.items) return schema.items.type + "[]";
+        if (schema["enum"]) return schema.type + " (" + schema["enum"].join(", ") + ")";
+        return schema.type || "";
+    }
+
+    function renderToolCard(fn, required) {
+        var props = (fn.parameters && fn.parameters.properties) || {};
+        var reqSet = new Set(required || (fn.parameters && fn.parameters.required) || []);
+        var rows = Object.keys(props).map(function(name) {
+            var p = props[name];
+            var desc = p.description || "";
+            var type = formatParamType(p);
+            var req = reqSet.has(name) ? "*" : "";
+            return '<tr>' +
+                '<td class="tool-param-name">' + escapeHtml(name) + '</td>' +
+                '<td class="tool-param-type">' + escapeHtml(type) + '</td>' +
+                '<td class="tool-param-desc">' + escapeHtml(desc) + '</td>' +
+                '<td class="tool-param-req">' + req + '</td>' +
+                '</tr>';
+        }).join("");
+
+        var tableHtml = rows
+            ? '<table class="tool-params">' +
+              '<thead><tr><th>Param</th><th>Type</th><th>Description</th><th>Req</th></tr></thead>' +
+              '<tbody>' + rows + '</tbody></table>'
+            : '<div style="color:#8b949e;font-size:11px">Aucun parametre</div>';
+
+        return '<div class="tool-card">' +
+            '<div class="tool-name">' + escapeHtml(fn.name || "") + '</div>' +
+            '<div class="tool-desc">' + escapeHtml(fn.description || "") + '</div>' +
+            tableHtml +
+            '</div>';
+    }
+
+    function renderTools(tools) {
+        return tools.map(function(t) {
+            var fn = t["function"] || t;
+            return renderToolCard(fn);
+        }).join("");
+    }
+
+    // Reset all special views back to JSON
+    function resetViews() {
+        requestView = "json";
+        modalRequest.style.display = "";
+        modalRequestChat.style.display = "none";
+        modalRequestChat.innerHTML = "";
+        modalRequestTools.style.display = "none";
+        modalRequestTools.innerHTML = "";
+        btnChatRequest.classList.remove("active");
+        btnToolsRequest.classList.remove("active");
+        modalResponse.style.display = "";
+        modalResponseChat.style.display = "none";
+        modalResponseChat.innerHTML = "";
+        btnChatResponse.classList.remove("active");
+        panelRequest.style.display = "";
+        panelResponse.style.display = "";
+        modalBody.style.gridTemplateColumns = "1fr 1fr";
+    }
+
+    // Go to full-width mode on request panel, hiding response
+    function enterFullWidth() {
+        panelResponse.style.display = "none";
+        modalBody.style.gridTemplateColumns = "1fr";
+        // Reset response chat if active
+        modalResponse.style.display = "";
+        modalResponseChat.style.display = "none";
+        btnChatResponse.classList.remove("active");
+    }
+
+    // Restore two-column layout
+    function exitFullWidth() {
+        panelResponse.style.display = "";
+        modalBody.style.gridTemplateColumns = "1fr 1fr";
+    }
+
+    function setRequestView(view) {
+        // Hide all request sub-views
+        modalRequest.style.display = "none";
+        modalRequestChat.style.display = "none";
+        modalRequestTools.style.display = "none";
+        btnChatRequest.classList.remove("active");
+        btnToolsRequest.classList.remove("active");
+
+        if (view === requestView) {
+            // Toggle off: back to JSON
+            modalRequest.style.display = "";
+            exitFullWidth();
+            requestView = "json";
+            return;
+        }
+
+        requestView = view;
+        if (view === "chat") {
+            try {
+                var parsed = JSON.parse(rawRequestBody);
+                var messages = parsed.messages;
+                if (messages && messages.length) {
+                    var responseContent = extractResponseContent(rawResponseBody);
+                    if (responseContent) {
+                        messages = messages.concat([{role: "assistant", content: responseContent}]);
+                    }
+                    modalRequestChat.innerHTML = renderMessages(messages);
+                    modalRequestChat.style.display = "";
+                    btnChatRequest.classList.add("active");
+                    enterFullWidth();
+                    return;
+                }
+            } catch (e) {}
+            // Fallback: stay on JSON
+            modalRequest.style.display = "";
+            requestView = "json";
+        } else if (view === "tools") {
+            try {
+                var parsed = JSON.parse(rawRequestBody);
+                var tools = parsed.tools;
+                if (tools && tools.length) {
+                    modalRequestTools.innerHTML = renderTools(tools);
+                    modalRequestTools.style.display = "flex";
+                    btnToolsRequest.classList.add("active");
+                    enterFullWidth();
+                    return;
+                }
+            } catch (e) {}
+            // Fallback: stay on JSON
+            modalRequest.style.display = "";
+            requestView = "json";
+        }
+    }
+
+    function toggleResponseChat() {
+        var isChat = modalResponseChat.style.display !== "none";
+        if (isChat) {
+            modalResponse.style.display = "";
+            modalResponseChat.style.display = "none";
+            btnChatResponse.classList.remove("active");
+            panelRequest.style.display = "";
+            modalBody.style.gridTemplateColumns = "1fr 1fr";
+        } else {
+            modalResponseChat.innerHTML = renderResponseChat(rawResponseBody);
+            modalResponse.style.display = "none";
+            modalResponseChat.style.display = "";
+            btnChatResponse.classList.add("active");
+            panelRequest.style.display = "none";
+            modalBody.style.gridTemplateColumns = "1fr";
+            // Reset request views
+            modalRequest.style.display = "";
+            modalRequestChat.style.display = "none";
+            modalRequestTools.style.display = "none";
+            btnChatRequest.classList.remove("active");
+            btnToolsRequest.classList.remove("active");
+            requestView = "json";
+        }
+    }
+
     function renderRow(s) {
         const path = s.query_string ? s.path + "?" + s.query_string : s.path;
         const codeHtml = s.status_code
@@ -119,12 +352,13 @@
             : "";
         return `<tr data-id="${s.id}" style="cursor:pointer">
             <td><span class="badge badge-${s.status}">${s.status}</span></td>
-            <td><a href="${UI_PREFIX}/sessions/${s.id}">${s.created_at}</a></td>
+            <td>${s.created_at}</td>
             <td><span class="badge badge-method">${s.method}</span></td>
             <td>${escapeHtml(path)}</td>
             <td>${codeHtml}</td>
             <td>${formatDuration(s.duration_ms)}</td>
             <td>${streamHtml}</td>
+            <td><a href="${UI_PREFIX}/sessions/${s.id}" class="btn-detail" title="Detail">&#x2197;</a></td>
         </tr>`;
     }
 
@@ -144,6 +378,9 @@
         modalTitle.textContent = "Chargement...";
         modalRequest.textContent = "";
         modalResponse.textContent = "";
+        rawRequestBody = "";
+        rawResponseBody = "";
+        resetViews();
         overlay.classList.add("active");
 
         fetch(UI_PREFIX + "/api/sessions/" + id)
@@ -152,8 +389,10 @@
                 const label = data.method + " " + data.path +
                     (data.status_code ? " — " + data.status_code : "");
                 modalTitle.textContent = label;
-                modalRequest.textContent = data.request_body || "(vide)";
-                modalResponse.textContent = data.response_body || "(vide)";
+                rawRequestBody = data.request_body || "";
+                rawResponseBody = data.response_body || "";
+                modalRequest.textContent = rawRequestBody || "(vide)";
+                modalResponse.textContent = rawResponseBody || "(vide)";
             })
             .catch(() => {
                 modalTitle.textContent = "Erreur";
@@ -171,6 +410,29 @@
     });
     document.addEventListener("keydown", function(e) {
         if (e.key === "Escape") closeModal();
+    });
+
+    // Toggle buttons
+    btnChatRequest.addEventListener("click", function() { setRequestView("chat"); });
+    btnToolsRequest.addEventListener("click", function() { setRequestView("tools"); });
+    btnChatResponse.addEventListener("click", function() { toggleResponseChat(); });
+
+    // Copy buttons
+    document.querySelectorAll(".btn-copy[data-target]").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+            var targetId = btn.dataset.target;
+            var pre = document.getElementById(targetId);
+            var chat = document.getElementById(targetId + "-chat");
+            // Copy from whichever is visible
+            var text = (chat && chat.style.display !== "none")
+                ? chat.textContent
+                : pre.textContent;
+            navigator.clipboard.writeText(text).then(function() {
+                var orig = btn.textContent;
+                btn.textContent = "Copie !";
+                setTimeout(function() { btn.textContent = orig; }, 1500);
+            });
+        });
     });
 
     tbody.addEventListener("click", function(e) {
