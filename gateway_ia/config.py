@@ -10,6 +10,7 @@ from pydantic import BaseModel
 class BackendConfig(BaseModel):
     base_url: str = "http://172.24.208.1:1234"
     timeout: int = 120
+    verify_ssl: bool = True
 
 
 class ProxyConfig(BaseModel):

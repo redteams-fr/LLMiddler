@@ -38,6 +38,7 @@ def create_app(config: AppConfig) -> FastAPI:
         app.state.http_client = httpx.AsyncClient(
             base_url=config.backend.base_url,
             timeout=httpx.Timeout(config.backend.timeout, connect=10),
+            verify=config.backend.verify_ssl,
         )
         yield
         await app.state.http_client.aclose()
