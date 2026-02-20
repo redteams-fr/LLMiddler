@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -227,6 +227,10 @@
             border-radius: 6px;
             background: #161b22;
             border: 1px solid #21262d;
+            cursor: pointer;
+        }
+        .chat-message.collapsed .chat-content {
+            display: none;
         }
         .chat-message:last-child { margin-bottom: 0; }
         .chat-role {
@@ -241,6 +245,22 @@
         .chat-role-user { background: #1c2641; color: #818cf8; }
         .chat-role-assistant { background: #1b4332; color: #2dd4bf; }
         .chat-role-system { background: #3b2f1e; color: #f59e0b; }
+        .chat-collapse-indicator {
+            float: right;
+            color: #484f58;
+            font-size: 12px;
+        }
+        .chat-preview {
+            display: none;
+            color: #484f58;
+            font-size: 12px;
+            margin-left: 8px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 80%;
+        }
+        .chat-message.collapsed .chat-preview { display: inline; }
         .chat-content {
             font-size: 13px;
             line-height: 1.6;

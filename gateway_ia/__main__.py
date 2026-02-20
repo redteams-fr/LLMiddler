@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import uvicorn
 
 from gateway_ia.app import create_app
@@ -8,6 +10,9 @@ from gateway_ia.config import load_config
 
 def main() -> None:
     config = load_config()
+    logging.basicConfig(
+        level=getattr(logging, config.logging.level.upper(), logging.INFO),
+    )
     app = create_app(config)
     uvicorn.run(
         app,

@@ -5,8 +5,8 @@
     <h1 id="session-count">Sessions ({{ sessions | length }})</h1>
     <form method="post" action="{{ ui_prefix }}/sessions/clear">
         <button class="btn btn-danger" type="submit"
-                onclick="return confirm('Vider toutes les sessions ?')">
-            Vider
+                onclick="return confirm('Clear all sessions?')">
+            Clear
         </button>
     </form>
 </div>
@@ -14,12 +14,13 @@
     <thead>
         <tr>
             <th>Status</th>
-            <th>Heure</th>
-            <th>Methode</th>
+            <th>Time</th>
+            <th>Method</th>
             <th>Path</th>
             <th>Code</th>
-            <th>Duree</th>
+            <th>Duration</th>
             <th>Type</th>
+            <th>Tokens</th>
             <th></th>
         </tr>
     </thead>
@@ -49,13 +50,14 @@
                 <span class="badge badge-streaming">stream</span>
                 {% endif %}
             </td>
+            <td>{% set tokens = s | usage_total %}{{ tokens if tokens else '-' }}</td>
             <td><a href="{{ ui_prefix }}/sessions/{{ s.id }}" class="btn-detail" title="Detail">&#x2197;</a></td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
 <p id="empty-msg" style="color: #8b949e; text-align: center; padding: 40px; {% if sessions %}display:none{% endif %}">
-    Aucune session enregistree. Envoyez une requete via le proxy pour commencer.
+    No sessions recorded. Send a request through the proxy to get started.
 </p>
 
 <div class="modal-overlay" id="modal-overlay">
@@ -67,11 +69,12 @@
         <div class="modal-body" id="modal-body">
             <div id="panel-request">
                 <div class="modal-panel-header">
-                    <div class="modal-panel-title">Requete</div>
+                    <div class="modal-panel-title">Request</div>
                     <div>
                         <button class="btn-copy" id="btn-chat-request">Chat</button>
                         <button class="btn-copy" id="btn-tools-request">Tools</button>
-                        <button class="btn-copy" data-target="modal-request">Copier</button>
+                        <button class="btn-copy" id="btn-collapse-all" style="display:none">Collapse all</button>
+                        <button class="btn-copy" data-target="modal-request">Copy</button>
                     </div>
                 </div>
                 <pre id="modal-request">-</pre>
@@ -80,14 +83,12 @@
             </div>
             <div id="panel-response">
                 <div class="modal-panel-header">
-                    <div class="modal-panel-title">Reponse</div>
+                    <div class="modal-panel-title">Response</div>
                     <div>
-                        <button class="btn-copy" id="btn-chat-response" data-panel="response">Chat</button>
-                        <button class="btn-copy" data-target="modal-response">Copier</button>
+                        <button class="btn-copy" data-target="modal-response">Copy</button>
                     </div>
                 </div>
                 <pre id="modal-response">-</pre>
-                <div id="modal-response-chat" class="chat-container" style="display:none"></div>
             </div>
         </div>
     </div>
@@ -104,11 +105,10 @@
     const modalRequest = document.getElementById("modal-request");
     const modalResponse = document.getElementById("modal-response");
     const modalRequestChat = document.getElementById("modal-request-chat");
-    const modalResponseChat = document.getElementById("modal-response-chat");
     const btnChatRequest = document.getElementById("btn-chat-request");
-    const btnChatResponse = document.getElementById("btn-chat-response");
     const btnToolsRequest = document.getElementById("btn-tools-request");
     const modalRequestTools = document.getElementById("modal-request-tools");
+    const btnCollapseAll = document.getElementById("btn-collapse-all");
     const modalBody = document.getElementById("modal-body");
     const panelRequest = document.getElementById("panel-request");
     const panelResponse = document.getElementById("panel-response");
@@ -146,31 +146,22 @@
         return "chat-role-system";
     }
 
+    function truncate(text, len) {
+        if (!text) return "";
+        var plain = text.replace(/\n/g, " ").trim();
+        return plain.length > len ? plain.substring(0, len) + "..." : plain;
+    }
+
     function renderMessages(messages) {
         return messages.map(function(msg) {
+            var preview = truncate(msg.content, 100);
             return '<div class="chat-message">' +
+                '<span class="chat-collapse-indicator">&#x25BC;</span>' +
                 '<div class="chat-role ' + roleClass(msg.role) + '">' + escapeHtml(msg.role) + '</div>' +
+                '<span class="chat-preview">' + escapeHtml(preview) + '</span>' +
                 '<div class="chat-content">' + marked.parse(msg.content || "") + '</div>' +
                 '</div>';
         }).join("");
-    }
-
-    function renderResponseChat(text) {
-        // Try to extract content from OpenAI JSON response
-        var content = text;
-        try {
-            var parsed = JSON.parse(text);
-            if (parsed.choices && parsed.choices[0]) {
-                var msg = parsed.choices[0].message;
-                if (msg && msg.content) {
-                    content = msg.content;
-                }
-            }
-        } catch (e) {}
-        return '<div class="chat-message">' +
-            '<div class="chat-role chat-role-assistant">assistant</div>' +
-            '<div class="chat-content">' + marked.parse(content) + '</div>' +
-            '</div>';
     }
 
     function extractResponseContent(text) {
@@ -212,7 +203,7 @@
             ? '<table class="tool-params">' +
               '<thead><tr><th>Param</th><th>Type</th><th>Description</th><th>Req</th></tr></thead>' +
               '<tbody>' + rows + '</tbody></table>'
-            : '<div style="color:#8b949e;font-size:11px">Aucun parametre</div>';
+            : '<div style="color:#8b949e;font-size:11px">No parameters</div>';
 
         return '<div class="tool-card">' +
             '<div class="tool-name">' + escapeHtml(fn.name || "") + '</div>' +
@@ -238,10 +229,8 @@
         modalRequestTools.innerHTML = "";
         btnChatRequest.classList.remove("active");
         btnToolsRequest.classList.remove("active");
+        btnCollapseAll.style.display = "none";
         modalResponse.style.display = "";
-        modalResponseChat.style.display = "none";
-        modalResponseChat.innerHTML = "";
-        btnChatResponse.classList.remove("active");
         panelRequest.style.display = "";
         panelResponse.style.display = "";
         modalBody.style.gridTemplateColumns = "1fr 1fr";
@@ -251,10 +240,6 @@
     function enterFullWidth() {
         panelResponse.style.display = "none";
         modalBody.style.gridTemplateColumns = "1fr";
-        // Reset response chat if active
-        modalResponse.style.display = "";
-        modalResponseChat.style.display = "none";
-        btnChatResponse.classList.remove("active");
     }
 
     // Restore two-column layout
@@ -270,6 +255,7 @@
         modalRequestTools.style.display = "none";
         btnChatRequest.classList.remove("active");
         btnToolsRequest.classList.remove("active");
+        btnCollapseAll.style.display = "none";
 
         if (view === requestView) {
             // Toggle off: back to JSON
@@ -292,6 +278,7 @@
                     modalRequestChat.innerHTML = renderMessages(messages);
                     modalRequestChat.style.display = "";
                     btnChatRequest.classList.add("active");
+                    btnCollapseAll.style.display = "";
                     enterFullWidth();
                     return;
                 }
@@ -317,31 +304,6 @@
         }
     }
 
-    function toggleResponseChat() {
-        var isChat = modalResponseChat.style.display !== "none";
-        if (isChat) {
-            modalResponse.style.display = "";
-            modalResponseChat.style.display = "none";
-            btnChatResponse.classList.remove("active");
-            panelRequest.style.display = "";
-            modalBody.style.gridTemplateColumns = "1fr 1fr";
-        } else {
-            modalResponseChat.innerHTML = renderResponseChat(rawResponseBody);
-            modalResponse.style.display = "none";
-            modalResponseChat.style.display = "";
-            btnChatResponse.classList.add("active");
-            panelRequest.style.display = "none";
-            modalBody.style.gridTemplateColumns = "1fr";
-            // Reset request views
-            modalRequest.style.display = "";
-            modalRequestChat.style.display = "none";
-            modalRequestTools.style.display = "none";
-            btnChatRequest.classList.remove("active");
-            btnToolsRequest.classList.remove("active");
-            requestView = "json";
-        }
-    }
-
     function renderRow(s) {
         const path = s.query_string ? s.path + "?" + s.query_string : s.path;
         const codeHtml = s.status_code
@@ -350,6 +312,7 @@
         const streamHtml = s.is_streaming
             ? '<span class="badge badge-streaming">stream</span>'
             : "";
+        const tokensHtml = s.total_tokens ? s.total_tokens : "-";
         return `<tr data-id="${s.id}" style="cursor:pointer">
             <td><span class="badge badge-${s.status}">${s.status}</span></td>
             <td>${s.created_at}</td>
@@ -358,6 +321,7 @@
             <td>${codeHtml}</td>
             <td>${formatDuration(s.duration_ms)}</td>
             <td>${streamHtml}</td>
+            <td>${tokensHtml}</td>
             <td><a href="${UI_PREFIX}/sessions/${s.id}" class="btn-detail" title="Detail">&#x2197;</a></td>
         </tr>`;
     }
@@ -375,7 +339,7 @@
 
     // Modal
     function openModal(id) {
-        modalTitle.textContent = "Chargement...";
+        modalTitle.textContent = "Loading...";
         modalRequest.textContent = "";
         modalResponse.textContent = "";
         rawRequestBody = "";
@@ -386,17 +350,22 @@
         fetch(UI_PREFIX + "/api/sessions/" + id)
             .then(r => r.json())
             .then(data => {
-                const label = data.method + " " + data.path +
+                var label = data.method + " " + data.path +
                     (data.status_code ? " — " + data.status_code : "");
+                if (data.usage) {
+                    label += "  ·  " + data.usage.prompt_tokens + " in / " +
+                        data.usage.completion_tokens + " out / " +
+                        data.usage.total_tokens + " total";
+                }
                 modalTitle.textContent = label;
                 rawRequestBody = data.request_body || "";
                 rawResponseBody = data.response_body || "";
-                modalRequest.textContent = rawRequestBody || "(vide)";
-                modalResponse.textContent = rawResponseBody || "(vide)";
+                modalRequest.textContent = rawRequestBody || "(empty)";
+                modalResponse.textContent = rawResponseBody || "(empty)";
             })
             .catch(() => {
-                modalTitle.textContent = "Erreur";
-                modalRequest.textContent = "Impossible de charger la session.";
+                modalTitle.textContent = "Error";
+                modalRequest.textContent = "Failed to load session.";
             });
     }
 
@@ -415,7 +384,26 @@
     // Toggle buttons
     btnChatRequest.addEventListener("click", function() { setRequestView("chat"); });
     btnToolsRequest.addEventListener("click", function() { setRequestView("tools"); });
-    btnChatResponse.addEventListener("click", function() { toggleResponseChat(); });
+
+    // Chat message collapse toggle (event delegation)
+    modalRequestChat.addEventListener("click", function(e) {
+        var msg = e.target.closest(".chat-message");
+        if (msg) msg.classList.toggle("collapsed");
+    });
+
+    // Collapse all button
+    btnCollapseAll.addEventListener("click", function() {
+        var msgs = modalRequestChat.querySelectorAll(".chat-message");
+        var allCollapsed = Array.from(msgs).every(function(m) { return m.classList.contains("collapsed"); });
+        msgs.forEach(function(m) {
+            if (allCollapsed) {
+                m.classList.remove("collapsed");
+            } else {
+                m.classList.add("collapsed");
+            }
+        });
+        btnCollapseAll.textContent = allCollapsed ? "Collapse all" : "Expand all";
+    });
 
     // Copy buttons
     document.querySelectorAll(".btn-copy[data-target]").forEach(function(btn) {
@@ -429,7 +417,7 @@
                 : pre.textContent;
             navigator.clipboard.writeText(text).then(function() {
                 var orig = btn.textContent;
-                btn.textContent = "Copie !";
+                btn.textContent = "Copied!";
                 setTimeout(function() { btn.textContent = orig; }, 1500);
             });
         });

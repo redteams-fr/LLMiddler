@@ -21,7 +21,7 @@ def _decode_body(value: bytes | None) -> str:
     try:
         return value.decode("utf-8")
     except (UnicodeDecodeError, AttributeError):
-        return f"[Donnees binaires, {len(value)} octets]"
+        return f"[Binary data, {len(value)} bytes]"
 
 
 def _tojson_pretty(value: str) -> str:
@@ -40,9 +40,10 @@ def _format_duration(value: float | None) -> str:
     return f"{value:.1f} ms"
 
 
-def _aggregate_sse(value: str) -> str:
+def _aggregate_sse(value: str) -> tuple[str, dict | None]:
     """Parse SSE lines and aggregate delta.content into a single message."""
     parts: list[str] = []
+    usage = None
     for line in value.splitlines():
         if not line.startswith("data: "):
             continue
@@ -51,13 +52,37 @@ def _aggregate_sse(value: str) -> str:
             break
         try:
             chunk = json.loads(payload)
+            u = chunk.get("usage")
+            if u:
+                usage = u
             for choice in chunk.get("choices", []):
                 content = choice.get("delta", {}).get("content")
                 if content:
                     parts.append(content)
         except (json.JSONDecodeError, TypeError, KeyError):
             continue
-    return "".join(parts) if parts else value
+    return ("".join(parts) if parts else value, usage)
+
+
+def _extract_usage_total(session) -> int | None:
+    """Extract total_tokens from a streaming session's SSE response body."""
+    if not session.is_streaming or not session.response_body:
+        return None
+    try:
+        decoded = _decode_body(session.response_body)
+        for line in reversed(decoded.splitlines()):
+            if not line.startswith("data: "):
+                continue
+            payload = line[len("data: "):]
+            if payload == "[DONE]":
+                continue
+            chunk = json.loads(payload)
+            u = chunk.get("usage")
+            if u:
+                return u.get("total_tokens")
+    except Exception:
+        pass
+    return None
 
 
 def _localtime(value: datetime) -> datetime:
@@ -71,7 +96,8 @@ templates.env.filters["localtime"] = _localtime
 templates.env.filters["decode_body"] = _decode_body
 templates.env.filters["tojson_pretty"] = _tojson_pretty
 templates.env.filters["format_duration"] = _format_duration
-templates.env.filters["aggregate_sse"] = _aggregate_sse
+templates.env.filters["aggregate_sse"] = lambda v: _aggregate_sse(v)[0]
+templates.env.filters["usage_total"] = _extract_usage_total
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -96,7 +122,7 @@ async def session_detail(request: Request, session_id: str):
     config = request.app.state.config
     session = store.get(session_id)
     if session is None:
-        return HTMLResponse(content="Session introuvable", status_code=404)
+        return HTMLResponse(content="Session not found", status_code=404)
     return templates.TemplateResponse(
         "session_detail.html",
         {
@@ -119,10 +145,11 @@ async def api_session_detail(request: Request, session_id: str):
         request_body = _tojson_pretty(_decode_body(session.request_body))
 
     response_body = ""
+    usage = None
     if session.response_body:
         decoded = _decode_body(session.response_body)
         if session.is_streaming:
-            response_body = _aggregate_sse(decoded)
+            response_body, usage = _aggregate_sse(decoded)
         else:
             response_body = _tojson_pretty(decoded)
 
@@ -134,6 +161,7 @@ async def api_session_detail(request: Request, session_id: str):
         "is_streaming": session.is_streaming,
         "request_body": request_body,
         "response_body": response_body,
+        "usage": usage,
     }
 
 
@@ -152,6 +180,7 @@ async def api_sessions(request: Request):
             "status_code": s.status_code,
             "duration_ms": s.duration_ms,
             "is_streaming": s.is_streaming,
+            "total_tokens": _extract_usage_total(s),
         }
         for s in sessions
     ]

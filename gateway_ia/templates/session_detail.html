@@ -3,11 +3,11 @@
 {% block content %}
 <div class="toolbar">
     <h1>Session {{ session.id }}</h1>
-    <a class="btn" href="{{ ui_prefix }}/">Retour</a>
+    <a class="btn" href="{{ ui_prefix }}/">Back</a>
 </div>
 
 <div class="panel">
-    <div class="panel-header">Informations</div>
+    <div class="panel-header">Details</div>
     <div class="panel-body">
         <table class="meta-table">
             <tr><td>ID</td><td>{{ session.id }}</td></tr>
@@ -16,13 +16,13 @@
                 <td>Status</td>
                 <td><span class="badge badge-{{ session.status.value }}">{{ session.status.value }}</span></td>
             </tr>
-            <tr><td>Duree</td><td>{{ session.duration_ms | format_duration if session.duration_ms is not none else '-' }}</td></tr>
+            <tr><td>Duration</td><td>{{ session.duration_ms | format_duration if session.duration_ms is not none else '-' }}</td></tr>
             <tr>
                 <td>Streaming</td>
-                <td>{% if session.is_streaming %}<span class="badge badge-streaming">oui</span>{% else %}non{% endif %}</td>
+                <td>{% if session.is_streaming %}<span class="badge badge-streaming">yes</span>{% else %}no{% endif %}</td>
             </tr>
             {% if session.error_message %}
-            <tr><td>Erreur</td><td style="color: #f87171;">{{ session.error_message }}</td></tr>
+            <tr><td>Error</td><td style="color: #f87171;">{{ session.error_message }}</td></tr>
             {% endif %}
         </table>
     </div>
@@ -31,7 +31,7 @@
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
     <div class="panel">
         <div class="panel-header">
-            Requete
+            Request
             <span class="badge badge-method" style="margin-left: 8px;">{{ session.method }}</span>
             {{ session.path }}{% if session.query_string %}?{{ session.query_string }}{% endif %}
         </div>
@@ -50,7 +50,7 @@
 
     <div class="panel">
         <div class="panel-header">
-            Reponse
+            Response
             {% if session.status_code %}
             <span class="
                 {% if session.status_code < 300 %}status-2xx
@@ -72,7 +72,7 @@
             <h3 style="font-size: 12px; color: #8b949e; margin: 12px 0 8px;">Message</h3>
             <pre style="white-space: pre-wrap;">{{ session.response_body | decode_body | aggregate_sse }}</pre>
             <details style="margin-top: 8px;">
-                <summary style="font-size: 12px; color: #8b949e; cursor: pointer;">SSE brut</summary>
+                <summary style="font-size: 12px; color: #8b949e; cursor: pointer;">Raw SSE</summary>
                 <pre style="margin-top: 8px; font-size: 11px; color: #8b949e;">{{ session.response_body | decode_body }}</pre>
             </details>
             {% else %}

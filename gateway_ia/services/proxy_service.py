@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 
 import httpx
@@ -8,6 +9,8 @@ from starlette.responses import Response, StreamingResponse
 
 from gateway_ia.models import Session, SessionStatus
 from gateway_ia.store import SessionStore
+
+logger = logging.getLogger(__name__)
 
 HOP_BY_HOP = frozenset(
     {
@@ -73,12 +76,15 @@ async def handle_proxy_request(
         content=body,
     )
 
+    logger.debug("→ %s %s", request.method, target_url)
+
     try:
         upstream_response = await client.send(upstream_request, stream=True)
     except httpx.HTTPError as exc:
         session.status = SessionStatus.ERROR
         session.error_message = str(exc)
         session.duration_ms = (time.monotonic() - start) * 1000
+        logger.error("✗ %s %s : %s", request.method, target_url, exc)
         return Response(content=f"Proxy error: {exc}", status_code=502)
 
     content_type = upstream_response.headers.get("content-type", "")
@@ -105,6 +111,12 @@ async def _build_regular_response(
     session.is_streaming = False
     session.status = SessionStatus.COMPLETED
     session.duration_ms = (time.monotonic() - start) * 1000
+    logger.debug(
+        "← %s %s (%.0fms)",
+        upstream_response.status_code,
+        session.path,
+        session.duration_ms,
+    )
 
     return Response(
         content=body,
@@ -134,6 +146,12 @@ def _build_streaming_response(
             if session.status != SessionStatus.ERROR:
                 session.status = SessionStatus.COMPLETED
             session.duration_ms = (time.monotonic() - start) * 1000
+            logger.debug(
+                "← %s %s (%.0fms, streaming)",
+                upstream_response.status_code,
+                session.path,
+                session.duration_ms,
+            )
             await upstream_response.aclose()
 
     return StreamingResponse(
