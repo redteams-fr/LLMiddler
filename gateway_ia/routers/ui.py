@@ -64,25 +64,37 @@ def _aggregate_sse(value: str) -> tuple[str, dict | None]:
     return ("".join(parts) if parts else value, usage)
 
 
-def _extract_usage_total(session) -> int | None:
-    """Extract total_tokens from a streaming session's SSE response body."""
-    if not session.is_streaming or not session.response_body:
+def _extract_usage(session) -> dict | None:
+    """Extract usage dict from a session's response body (streaming or not)."""
+    if not session.response_body:
         return None
     try:
         decoded = _decode_body(session.response_body)
-        for line in reversed(decoded.splitlines()):
-            if not line.startswith("data: "):
-                continue
-            payload = line[len("data: "):]
-            if payload == "[DONE]":
-                continue
-            chunk = json.loads(payload)
-            u = chunk.get("usage")
+        if session.is_streaming:
+            for line in reversed(decoded.splitlines()):
+                if not line.startswith("data: "):
+                    continue
+                payload = line[len("data: "):]
+                if payload == "[DONE]":
+                    continue
+                chunk = json.loads(payload)
+                u = chunk.get("usage")
+                if u:
+                    return u
+        else:
+            parsed = json.loads(decoded)
+            u = parsed.get("usage")
             if u:
-                return u.get("total_tokens")
+                return u
     except Exception:
         pass
     return None
+
+
+def _extract_usage_total(session) -> int | None:
+    """Extract total_tokens from a session's response body."""
+    u = _extract_usage(session)
+    return u.get("total_tokens") if u else None
 
 
 def _localtime(value: datetime) -> datetime:
@@ -169,8 +181,15 @@ async def api_session_detail(request: Request, session_id: str):
 async def api_sessions(request: Request):
     store = request.app.state.store
     sessions = [s for s in store.list_all() if "favico" not in s.path and "_ui" not in s.path]
-    return [
-        {
+    total_prompt = 0
+    total_completion = 0
+    items = []
+    for s in sessions:
+        usage = _extract_usage(s)
+        if usage:
+            total_prompt += usage.get("prompt_tokens", 0)
+            total_completion += usage.get("completion_tokens", 0)
+        items.append({
             "id": s.id,
             "status": s.status.value,
             "created_at": _localtime(s.created_at).strftime("%H:%M:%S"),
@@ -180,10 +199,16 @@ async def api_sessions(request: Request):
             "status_code": s.status_code,
             "duration_ms": s.duration_ms,
             "is_streaming": s.is_streaming,
-            "total_tokens": _extract_usage_total(s),
-        }
-        for s in sessions
-    ]
+            "total_tokens": usage.get("total_tokens") if usage else None,
+        })
+    return {
+        "sessions": items,
+        "totals": {
+            "prompt_tokens": total_prompt,
+            "completion_tokens": total_completion,
+            "total_tokens": total_prompt + total_completion,
+        },
+    }
 
 
 @router.post("/sessions/clear")

@@ -1,5 +1,6 @@
 backend:
   base_url: "http://172.24.208.1:1234"
+  base_url2: "https://api.anthropic.com"
   timeout: 120
   verify_ssl: false
 

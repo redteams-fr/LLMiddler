@@ -7,9 +7,16 @@ Think of it as a Fiddler-style debugging tool built specifically for AI APIs.
 
 ## Overview
 
-![Session list with preview modal](img/01.jpg)
+![Session list](img/00.jpg)
 
-![Session detail view](img/02.jpg)
+![Session raw detail view](img/02.jpg)
+
+![parsed modal](img/01.jpg)
+
+![parsed modal](img/04.jpg)
+
+![Tools detail view](img/03.jpg)
+
 
 ## Features
 

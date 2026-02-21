@@ -3,12 +3,15 @@
 {% block content %}
 <div class="toolbar">
     <h1 id="session-count">Sessions ({{ sessions | length }})</h1>
-    <form method="post" action="{{ ui_prefix }}/sessions/clear">
-        <button class="btn btn-danger" type="submit"
-                onclick="return confirm('Clear all sessions?')">
-            Clear
-        </button>
-    </form>
+    <div style="display: flex; align-items: center; gap: 16px;">
+        <span id="token-totals" style="font-size: 11px; color: #8b949e;"></span>
+        <form method="post" action="{{ ui_prefix }}/sessions/clear">
+            <button class="btn btn-danger" type="submit"
+                    onclick="return confirm('Clear all sessions?')">
+                Clear
+            </button>
+        </form>
+    </div>
 </div>
 <table>
     <thead>
@@ -112,6 +115,7 @@
     const modalBody = document.getElementById("modal-body");
     const panelRequest = document.getElementById("panel-request");
     const panelResponse = document.getElementById("panel-response");
+    const tokenTotalsEl = document.getElementById("token-totals");
 
     // Raw data stored for chat rendering
     let rawRequestBody = "";
@@ -213,10 +217,21 @@
     }
 
     function renderTools(tools) {
-        return tools.map(function(t) {
+        var names = tools.map(function(t) {
             var fn = t["function"] || t;
-            return renderToolCard(fn);
+            return fn.name || "";
+        });
+        var summary = '<div class="tools-summary">' +
+            '<span class="tools-summary-label">' + tools.length + ' tools:</span>' +
+            names.map(function(name, i) {
+                return '<span class="tools-summary-name" data-tool-idx="' + i + '">' + escapeHtml(name) + '</span>';
+            }).join("") +
+            '</div>';
+        var cards = tools.map(function(t, i) {
+            var fn = t["function"] || t;
+            return renderToolCard(fn).replace('class="tool-card"', 'class="tool-card" id="tool-card-' + i + '"');
         }).join("");
+        return summary + cards;
     }
 
     // Reset all special views back to JSON
@@ -326,14 +341,23 @@
         </tr>`;
     }
 
+    function formatTokenTotals(totals) {
+        if (!totals || !totals.total_tokens) return "";
+        return totals.prompt_tokens.toLocaleString() + " in / " +
+            totals.completion_tokens.toLocaleString() + " out / " +
+            totals.total_tokens.toLocaleString() + " total";
+    }
+
     async function refresh() {
         try {
             const res = await fetch(UI_PREFIX + "/api/sessions");
             if (!res.ok) return;
-            const sessions = await res.json();
+            const data = await res.json();
+            const sessions = data.sessions;
             countEl.textContent = "Sessions (" + sessions.length + ")";
             tbody.innerHTML = sessions.map(renderRow).join("");
             emptyMsg.style.display = sessions.length ? "none" : "block";
+            tokenTotalsEl.textContent = formatTokenTotals(data.totals);
         } catch (e) {}
     }
 
@@ -374,16 +398,20 @@
     }
 
     document.getElementById("modal-close").addEventListener("click", closeModal);
-    overlay.addEventListener("click", function(e) {
-        if (e.target === overlay) closeModal();
-    });
-    document.addEventListener("keydown", function(e) {
-        if (e.key === "Escape") closeModal();
-    });
 
     // Toggle buttons
     btnChatRequest.addEventListener("click", function() { setRequestView("chat"); });
     btnToolsRequest.addEventListener("click", function() { setRequestView("tools"); });
+
+    // Tools summary click-to-scroll (event delegation)
+    modalRequestTools.addEventListener("click", function(e) {
+        var nameEl = e.target.closest(".tools-summary-name");
+        if (nameEl) {
+            var idx = nameEl.dataset.toolIdx;
+            var card = document.getElementById("tool-card-" + idx);
+            if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    });
 
     // Chat message collapse toggle (event delegation)
     modalRequestChat.addEventListener("click", function(e) {
