@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import logging
 import time
 
 import httpx
+from loguru import logger
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
 from gateway_ia.models import Session, SessionStatus
 from gateway_ia.store import SessionStore
-
-logger = logging.getLogger(__name__)
 
 HOP_BY_HOP = frozenset(
     {

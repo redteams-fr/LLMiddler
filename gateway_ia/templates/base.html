@@ -74,6 +74,7 @@
             font-weight: 700;
         }
         .badge-streaming { background: #1e3a5f; color: #7dd3fc; }
+        .badge-toolcall { background: #2d1b4e; color: #d2a8ff; }
         .status-2xx { color: #2dd4bf; }
         .status-4xx { color: #f59e0b; }
         .status-5xx { color: #f87171; }
@@ -170,6 +171,23 @@
             font-family: inherit;
         }
         .modal-close:hover { color: #f0f6fc; }
+        .modal-nav {
+            display: flex;
+            gap: 2px;
+        }
+        .modal-nav-btn {
+            background: none;
+            border: 1px solid #30363d;
+            color: #8b949e;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0 8px;
+            border-radius: 4px;
+            font-family: inherit;
+            line-height: 1.4;
+        }
+        .modal-nav-btn:hover:not(:disabled) { color: #f0f6fc; background: #21262d; }
+        .modal-nav-btn:disabled { opacity: 0.3; cursor: default; }
         .modal-body {
             padding: 16px;
             overflow-y: auto;
@@ -384,6 +402,7 @@
             font-weight: 700;
             text-align: center;
         }
+        .chat-role-tool { background: #2d1b4e; color: #d2a8ff; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>

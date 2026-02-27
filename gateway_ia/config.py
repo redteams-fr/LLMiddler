@@ -13,7 +13,7 @@ class BackendConfig(BaseModel):
     verify_ssl: bool = True
 
 
-class ProxyConfig(BaseModel):
+class ListenConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8080
 
@@ -29,7 +29,7 @@ class LoggingConfig(BaseModel):
 
 class AppConfig(BaseModel):
     backend: BackendConfig = BackendConfig()
-    proxy: ProxyConfig = ProxyConfig()
+    listen: ListenConfig = ListenConfig()
     ui: UIConfig = UIConfig()
     logging: LoggingConfig = LoggingConfig()
 

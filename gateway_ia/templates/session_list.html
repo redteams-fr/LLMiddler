@@ -52,6 +52,9 @@
                 {% if s.is_streaming %}
                 <span class="badge badge-streaming">stream</span>
                 {% endif %}
+                {% if s | has_tool_calls %}
+                <span class="badge badge-toolcall">tool</span>
+                {% endif %}
             </td>
             <td>{% set tokens = s | usage_total %}{{ tokens if tokens else '-' }}</td>
             <td><a href="{{ ui_prefix }}/sessions/{{ s.id }}" class="btn-detail" title="Detail">&#x2197;</a></td>
@@ -66,6 +69,10 @@
 <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
         <div class="modal-header">
+            <div class="modal-nav">
+                <button class="modal-nav-btn" id="modal-prev" title="Previous request">&#x2039;</button>
+                <button class="modal-nav-btn" id="modal-next" title="Next request">&#x203A;</button>
+            </div>
             <span id="modal-title">Session</span>
             <button class="modal-close" id="modal-close">&times;</button>
         </div>
@@ -77,6 +84,8 @@
                         <button class="btn-copy" id="btn-chat-request">Chat</button>
                         <button class="btn-copy" id="btn-tools-request">Tools</button>
                         <button class="btn-copy" id="btn-collapse-all" style="display:none">Collapse all</button>
+                        <button class="btn-copy" id="btn-copy-message">Copy message</button>
+                        <button class="btn-copy" id="btn-copy-tools">Copy tools</button>
                         <button class="btn-copy" data-target="modal-request">Copy</button>
                     </div>
                 </div>
@@ -88,10 +97,12 @@
                 <div class="modal-panel-header">
                     <div class="modal-panel-title">Response</div>
                     <div>
+                        <button class="btn-copy" id="btn-raw-response">Raw</button>
                         <button class="btn-copy" data-target="modal-response">Copy</button>
                     </div>
                 </div>
                 <pre id="modal-response">-</pre>
+                <pre id="modal-response-raw" style="display:none">-</pre>
             </div>
         </div>
     </div>
@@ -116,12 +127,24 @@
     const panelRequest = document.getElementById("panel-request");
     const panelResponse = document.getElementById("panel-response");
     const tokenTotalsEl = document.getElementById("token-totals");
+    const btnPrev = document.getElementById("modal-prev");
+    const btnNext = document.getElementById("modal-next");
+    const modalResponseRaw = document.getElementById("modal-response-raw");
+    const btnRawResponse = document.getElementById("btn-raw-response");
+    const btnCopyMessage = document.getElementById("btn-copy-message");
+    const btnCopyTools = document.getElementById("btn-copy-tools");
 
     // Raw data stored for chat rendering
     let rawRequestBody = "";
     let rawResponseBody = "";
+    let rawResponseBodyRaw = "";
+    let toolCallsData = null;
+    let responseRawView = false;
     // Current active view for request panel: "json" | "chat" | "tools"
     let requestView = "json";
+    // Navigation state
+    let sessionIds = [];
+    let currentSessionIndex = -1;
 
     marked.setOptions({ breaks: true });
 
@@ -147,6 +170,7 @@
     function roleClass(role) {
         if (role === "user") return "chat-role-user";
         if (role === "assistant") return "chat-role-assistant";
+        if (role === "tool") return "chat-role-tool";
         return "chat-role-system";
     }
 
@@ -158,12 +182,21 @@
 
     function renderMessages(messages) {
         return messages.map(function(msg) {
-            var preview = truncate(msg.content, 100);
+            var contentText = msg.content || "";
+            if (msg.tool_calls && msg.tool_calls.length) {
+                var tcText = formatToolCallsMarkdown(msg.tool_calls);
+                contentText = contentText ? contentText + "\n\n---\n\n" + tcText : tcText;
+            }
+            if (msg.role === "tool") {
+                var label = msg.tool_call_id ? "Result for `" + msg.tool_call_id + "`:\n\n" : "";
+                contentText = label + (contentText || "(empty)");
+            }
+            var preview = truncate(contentText, 100);
             return '<div class="chat-message">' +
                 '<span class="chat-collapse-indicator">&#x25BC;</span>' +
                 '<div class="chat-role ' + roleClass(msg.role) + '">' + escapeHtml(msg.role) + '</div>' +
                 '<span class="chat-preview">' + escapeHtml(preview) + '</span>' +
-                '<div class="chat-content">' + marked.parse(msg.content || "") + '</div>' +
+                '<div class="chat-content">' + marked.parse(contentText || "(empty)") + '</div>' +
                 '</div>';
         }).join("");
     }
@@ -234,6 +267,15 @@
         return summary + cards;
     }
 
+    function formatToolCallsMarkdown(toolCalls) {
+        return toolCalls.map(function(tc) {
+            var fn = tc["function"] || {};
+            var args = fn.arguments || "";
+            try { args = JSON.stringify(JSON.parse(args), null, 2); } catch(e) {}
+            return "**Tool call: `" + (fn.name || "") + "`**\n```json\n" + args + "\n```";
+        }).join("\n\n");
+    }
+
     // Reset all special views back to JSON
     function resetViews() {
         requestView = "json";
@@ -249,6 +291,9 @@
         panelRequest.style.display = "";
         panelResponse.style.display = "";
         modalBody.style.gridTemplateColumns = "1fr 1fr";
+        modalResponseRaw.style.display = "none";
+        btnRawResponse.classList.remove("active");
+        responseRawView = false;
     }
 
     // Go to full-width mode on request panel, hiding response
@@ -287,8 +332,13 @@
                 var messages = parsed.messages;
                 if (messages && messages.length) {
                     var responseContent = extractResponseContent(rawResponseBody);
-                    if (responseContent) {
-                        messages = messages.concat([{role: "assistant", content: responseContent}]);
+                    var assistantContent = responseContent || "";
+                    if (toolCallsData && toolCallsData.length) {
+                        var tcText = formatToolCallsMarkdown(toolCallsData);
+                        assistantContent = assistantContent ? assistantContent + "\n\n---\n\n" + tcText : tcText;
+                    }
+                    if (assistantContent) {
+                        messages = messages.concat([{role: "assistant", content: assistantContent}]);
                     }
                     modalRequestChat.innerHTML = renderMessages(messages);
                     modalRequestChat.style.display = "";
@@ -327,6 +377,9 @@
         const streamHtml = s.is_streaming
             ? '<span class="badge badge-streaming">stream</span>'
             : "";
+        const toolHtml = s.has_tool_calls
+            ? '<span class="badge badge-toolcall">tool</span>'
+            : "";
         const tokensHtml = s.total_tokens ? s.total_tokens : "-";
         return `<tr data-id="${s.id}" style="cursor:pointer">
             <td><span class="badge badge-${s.status}">${s.status}</span></td>
@@ -335,7 +388,7 @@
             <td>${escapeHtml(path)}</td>
             <td>${codeHtml}</td>
             <td>${formatDuration(s.duration_ms)}</td>
-            <td>${streamHtml}</td>
+            <td>${streamHtml}${toolHtml}</td>
             <td>${tokensHtml}</td>
             <td><a href="${UI_PREFIX}/sessions/${s.id}" class="btn-detail" title="Detail">&#x2197;</a></td>
         </tr>`;
@@ -361,8 +414,36 @@
         } catch (e) {}
     }
 
+    function getSessionIds() {
+        return Array.from(tbody.querySelectorAll("tr[data-id]")).map(function(r) { return r.dataset.id; });
+    }
+
+    function updateNavButtons() {
+        btnPrev.disabled = currentSessionIndex <= 0;
+        btnNext.disabled = currentSessionIndex >= sessionIds.length - 1;
+    }
+
+    function navigatePrev() {
+        if (currentSessionIndex > 0) {
+            currentSessionIndex--;
+            openModal(sessionIds[currentSessionIndex], true);
+        }
+    }
+
+    function navigateNext() {
+        if (currentSessionIndex < sessionIds.length - 1) {
+            currentSessionIndex++;
+            openModal(sessionIds[currentSessionIndex], true);
+        }
+    }
+
     // Modal
-    function openModal(id) {
+    function openModal(id, fromNav) {
+        if (!fromNav) {
+            sessionIds = getSessionIds();
+            currentSessionIndex = sessionIds.indexOf(id);
+        }
+        updateNavButtons();
         modalTitle.textContent = "Loading...";
         modalRequest.textContent = "";
         modalResponse.textContent = "";
@@ -384,6 +465,8 @@
                 modalTitle.textContent = label;
                 rawRequestBody = data.request_body || "";
                 rawResponseBody = data.response_body || "";
+                rawResponseBodyRaw = data.response_body_raw || "";
+                toolCallsData = data.tool_calls || null;
                 modalRequest.textContent = rawRequestBody || "(empty)";
                 modalResponse.textContent = rawResponseBody || "(empty)";
             })
@@ -398,10 +481,84 @@
     }
 
     document.getElementById("modal-close").addEventListener("click", closeModal);
+    btnPrev.addEventListener("click", navigatePrev);
+    btnNext.addEventListener("click", navigateNext);
+
+    document.addEventListener("keydown", function(e) {
+        if (!overlay.classList.contains("active")) return;
+        if (e.key === "ArrowLeft") { navigatePrev(); e.preventDefault(); }
+        else if (e.key === "ArrowRight") { navigateNext(); e.preventDefault(); }
+        else if (e.key === "Escape") { closeModal(); e.preventDefault(); }
+    });
 
     // Toggle buttons
     btnChatRequest.addEventListener("click", function() { setRequestView("chat"); });
     btnToolsRequest.addEventListener("click", function() { setRequestView("tools"); });
+    btnCopyTools.addEventListener("click", function() {
+        try {
+            var parsed = JSON.parse(rawRequestBody);
+            var tools = parsed.tools;
+            if (!tools || !tools.length) throw new Error("no tools");
+            var text = JSON.stringify(tools, null, 2);
+            navigator.clipboard.writeText(text).then(function() {
+                var orig = btnCopyTools.textContent;
+                btnCopyTools.textContent = "Copied!";
+                setTimeout(function() { btnCopyTools.textContent = orig; }, 1500);
+            });
+        } catch(e) {}
+    });
+    btnCopyMessage.addEventListener("click", function() {
+        try {
+            var parsed = JSON.parse(rawRequestBody);
+            var messages = parsed.messages;
+            if (!messages || !messages.length) throw new Error("no messages");
+            // Build the assistant response message from the aggregated response
+            var assistantMsg = null;
+            if (toolCallsData && toolCallsData.length) {
+                assistantMsg = { role: "assistant" };
+                // Extract content from aggregated response if present
+                try {
+                    var respParsed = JSON.parse(rawResponseBody);
+                    var content = (respParsed.message || {}).content;
+                    if (content) assistantMsg.content = content;
+                } catch(e) {}
+                assistantMsg.tool_calls = toolCallsData;
+            } else if (rawResponseBody) {
+                // Plain text response (streaming aggregated) or non-streaming
+                var content = null;
+                try {
+                    var respParsed = JSON.parse(rawResponseBody);
+                    content = (respParsed.message || {}).content
+                        || ((respParsed.choices || [])[0] || {}).message && ((respParsed.choices || [])[0]).message.content;
+                } catch(e) {}
+                if (!content && rawResponseBody && rawResponseBody[0] !== '{') content = rawResponseBody;
+                if (content) assistantMsg = { role: "assistant", content: content };
+            }
+            var result = assistantMsg ? messages.concat([assistantMsg]) : messages;
+            var text = JSON.stringify(result, null, 2);
+            navigator.clipboard.writeText(text).then(function() {
+                var orig = btnCopyMessage.textContent;
+                btnCopyMessage.textContent = "Copied!";
+                setTimeout(function() { btnCopyMessage.textContent = orig; }, 1500);
+            });
+        } catch(e) {
+            // Fallback: just copy raw request body
+            navigator.clipboard.writeText(rawRequestBody);
+        }
+    });
+    btnRawResponse.addEventListener("click", function() {
+        responseRawView = !responseRawView;
+        if (responseRawView) {
+            modalResponseRaw.textContent = rawResponseBodyRaw || "(empty)";
+            modalResponse.style.display = "none";
+            modalResponseRaw.style.display = "";
+            btnRawResponse.classList.add("active");
+        } else {
+            modalResponseRaw.style.display = "none";
+            modalResponse.style.display = "";
+            btnRawResponse.classList.remove("active");
+        }
+    });
 
     // Tools summary click-to-scroll (event delegation)
     modalRequestTools.addEventListener("click", function(e) {

@@ -40,9 +40,10 @@ def _format_duration(value: float | None) -> str:
     return f"{value:.1f} ms"
 
 
-def _aggregate_sse(value: str) -> tuple[str, dict | None]:
-    """Parse SSE lines and aggregate delta.content into a single message."""
+def _aggregate_sse(value: str) -> tuple[str, list[dict] | None, dict | None]:
+    """Parse SSE lines and aggregate delta.content and delta.tool_calls."""
     parts: list[str] = []
+    tool_calls: dict[int, dict] = {}
     usage = None
     for line in value.splitlines():
         if not line.startswith("data: "):
@@ -56,12 +57,50 @@ def _aggregate_sse(value: str) -> tuple[str, dict | None]:
             if u:
                 usage = u
             for choice in chunk.get("choices", []):
-                content = choice.get("delta", {}).get("content")
+                delta = choice.get("delta", {})
+                content = delta.get("content")
                 if content:
                     parts.append(content)
+                for tc in delta.get("tool_calls", []):
+                    idx = tc.get("index", 0)
+                    if idx not in tool_calls:
+                        tool_calls[idx] = {
+                            "id": tc.get("id", ""),
+                            "type": tc.get("type", "function"),
+                            "function": {
+                                "name": tc.get("function", {}).get("name", ""),
+                                "arguments": "",
+                            },
+                        }
+                    else:
+                        if tc.get("id"):
+                            tool_calls[idx]["id"] = tc["id"]
+                        if tc.get("function", {}).get("name"):
+                            tool_calls[idx]["function"]["name"] = tc["function"]["name"]
+                    args = tc.get("function", {}).get("arguments")
+                    if args is not None:
+                        tool_calls[idx]["function"]["arguments"] += args
         except (json.JSONDecodeError, TypeError, KeyError):
             continue
-    return ("".join(parts) if parts else value, usage)
+    tc_list = [tool_calls[i] for i in sorted(tool_calls)] if tool_calls else None
+    text = "".join(parts) if parts else ("" if tc_list else value)
+    return (text, tc_list, usage)
+
+
+def _has_tool_calls(session) -> bool:
+    """Check if a session's response contains tool_calls."""
+    if not session.response_body:
+        return False
+    try:
+        decoded = _decode_body(session.response_body)
+        if session.is_streaming:
+            return '"tool_calls"' in decoded
+        else:
+            parsed = json.loads(decoded)
+            msg = parsed.get("choices", [{}])[0].get("message", {})
+            return bool(msg.get("tool_calls"))
+    except Exception:
+        return False
 
 
 def _extract_usage(session) -> dict | None:
@@ -110,6 +149,7 @@ templates.env.filters["tojson_pretty"] = _tojson_pretty
 templates.env.filters["format_duration"] = _format_duration
 templates.env.filters["aggregate_sse"] = lambda v: _aggregate_sse(v)[0]
 templates.env.filters["usage_total"] = _extract_usage_total
+templates.env.filters["has_tool_calls"] = _has_tool_calls
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -157,13 +197,34 @@ async def api_session_detail(request: Request, session_id: str):
         request_body = _tojson_pretty(_decode_body(session.request_body))
 
     response_body = ""
+    response_body_raw = ""
     usage = None
+    tool_calls = None
     if session.response_body:
         decoded = _decode_body(session.response_body)
+        response_body_raw = decoded
         if session.is_streaming:
-            response_body, usage = _aggregate_sse(decoded)
+            text, tool_calls, usage = _aggregate_sse(decoded)
+            # Reconstruct a clean JSON message from the aggregated parts
+            msg: dict = {"role": "assistant"}
+            if text:
+                msg["content"] = text
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+            reconstructed: dict = {"message": msg}
+            if usage:
+                reconstructed["usage"] = usage
+            response_body = json.dumps(reconstructed, indent=2, ensure_ascii=False)
         else:
             response_body = _tojson_pretty(decoded)
+            try:
+                parsed = json.loads(decoded)
+                msg = parsed.get("choices", [{}])[0].get("message", {})
+                tc = msg.get("tool_calls")
+                if tc:
+                    tool_calls = tc
+            except (json.JSONDecodeError, TypeError, KeyError, IndexError):
+                pass
 
     return {
         "id": session.id,
@@ -173,6 +234,8 @@ async def api_session_detail(request: Request, session_id: str):
         "is_streaming": session.is_streaming,
         "request_body": request_body,
         "response_body": response_body,
+        "response_body_raw": response_body_raw,
+        "tool_calls": tool_calls,
         "usage": usage,
     }
 
@@ -199,6 +262,7 @@ async def api_sessions(request: Request):
             "status_code": s.status_code,
             "duration_ms": s.duration_ms,
             "is_streaming": s.is_streaming,
+            "has_tool_calls": _has_tool_calls(s),
             "total_tokens": usage.get("total_tokens") if usage else None,
         })
     return {

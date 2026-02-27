@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from contextlib import asynccontextmanager
 
 import httpx
@@ -12,24 +11,7 @@ from gateway_ia.routers import proxy, ui
 from gateway_ia.store import SessionStore
 
 
-class _UIAccessFilter(logging.Filter):
-    """Filter out /_ui requests from uvicorn access logs."""
-
-    def __init__(self, ui_prefix: str) -> None:
-        super().__init__()
-        self._prefix = ui_prefix
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        return self._prefix not in msg
-
-
 def create_app(config: AppConfig) -> FastAPI:
-
-    if not config.logging.quiet:
-        logging.getLogger("uvicorn.access").addFilter(
-            _UIAccessFilter(config.ui.prefix)
-        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
