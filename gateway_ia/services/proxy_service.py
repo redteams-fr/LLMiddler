@@ -102,7 +102,7 @@ async def _build_regular_response(
     session: Session,
     start: float,
 ) -> Response:
-    body = await upstream_response.aread()
+    body = await upstream_response.stream.read()
     await upstream_response.aclose()
 
     session.response_body = body
@@ -133,7 +133,7 @@ def _build_streaming_response(
 
     async def stream_generator():
         try:
-            async for chunk in upstream_response.aiter_bytes():
+            async for chunk in upstream_response.aiter_raw():
                 accumulated.extend(chunk)
                 yield chunk
         except Exception as exc:
