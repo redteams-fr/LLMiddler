@@ -102,7 +102,7 @@ async def _build_regular_response(
     session: Session,
     start: float,
 ) -> Response:
-    body = await upstream_response.stream.read()
+    body = b"".join([chunk async for chunk in upstream_response.stream])
     await upstream_response.aclose()
 
     session.response_body = body
