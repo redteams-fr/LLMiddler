@@ -5,6 +5,7 @@
     <h1 id="session-count">Sessions ({{ sessions | length }})</h1>
     <div style="display: flex; align-items: center; gap: 16px;">
         <span id="token-totals" style="font-size: 11px; color: #8b949e;"></span>
+        <button class="btn-toolcalls" id="btn-tool-summary" style="display:none">Tool Calls</button>
         <form method="post" action="{{ ui_prefix }}/sessions/clear">
             <button class="btn btn-danger" type="submit"
                     onclick="return confirm('Clear all sessions?')">
@@ -115,6 +116,17 @@
     </div>
 </div>
 
+<div class="tool-summary-overlay" id="tool-summary-overlay">
+    <div class="tool-summary-modal">
+        <div class="tool-summary-header">
+            <span>Tool Calls Summary</span>
+            <button class="modal-close" id="tool-summary-close">&times;</button>
+        </div>
+        <div class="tool-summary-body" id="tool-summary-body"></div>
+        <div class="tool-summary-footer" id="tool-summary-footer"></div>
+    </div>
+</div>
+
 <script>
 (function() {
     const UI_PREFIX = "{{ ui_prefix }}";
@@ -140,6 +152,10 @@
     const btnRawResponse = document.getElementById("btn-raw-response");
     const btnCopyMessage = document.getElementById("btn-copy-message");
     const btnCopyTools = document.getElementById("btn-copy-tools");
+    const btnToolSummary = document.getElementById("btn-tool-summary");
+    const toolSummaryOverlay = document.getElementById("tool-summary-overlay");
+    const toolSummaryBody = document.getElementById("tool-summary-body");
+    const toolSummaryFooter = document.getElementById("tool-summary-footer");
 
     // Raw data stored for chat rendering
     let rawRequestBody = "";
@@ -428,6 +444,8 @@
             tbody.innerHTML = sessions.map(renderRow).join("");
             emptyMsg.style.display = sessions.length ? "none" : "block";
             tokenTotalsEl.textContent = formatTokenTotals(data.totals);
+            var hasAnyTools = sessions.some(function(s) { return s.has_tool_calls; });
+            btnToolSummary.style.display = hasAnyTools ? "" : "none";
         } catch (e) {}
     }
 
@@ -502,10 +520,21 @@
     btnNext.addEventListener("click", navigateNext);
 
     document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") {
+            if (toolSummaryOverlay.classList.contains("active")) {
+                toolSummaryOverlay.classList.remove("active");
+                e.preventDefault();
+                return;
+            }
+            if (overlay.classList.contains("active")) {
+                closeModal();
+                e.preventDefault();
+                return;
+            }
+        }
         if (!overlay.classList.contains("active")) return;
         if (e.key === "ArrowLeft") { navigatePrev(); e.preventDefault(); }
         else if (e.key === "ArrowRight") { navigateNext(); e.preventDefault(); }
-        else if (e.key === "Escape") { closeModal(); e.preventDefault(); }
     });
 
     // Toggle buttons
@@ -623,6 +652,45 @@
                 setTimeout(function() { btn.textContent = orig; }, 1500);
             });
         });
+    });
+
+    // Tool Calls Summary modal
+    btnToolSummary.addEventListener("click", function() {
+        toolSummaryBody.innerHTML = '<div style="padding:16px;color:#8b949e">Loading...</div>';
+        toolSummaryFooter.textContent = "";
+        toolSummaryOverlay.classList.add("active");
+
+        fetch(UI_PREFIX + "/api/tool-calls-summary")
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.tools || !data.tools.length) {
+                    toolSummaryBody.innerHTML = '<div style="padding:16px;color:#8b949e">No tool calls recorded.</div>';
+                    toolSummaryFooter.textContent = "";
+                    return;
+                }
+                var rows = data.tools.map(function(t) {
+                    return '<tr>' +
+                        '<td class="tool-summary-name">' + escapeHtml(t.name) + '</td>' +
+                        '<td class="tool-summary-count">' + t.count + '</td>' +
+                        '</tr>';
+                }).join("");
+                toolSummaryBody.innerHTML =
+                    '<table class="tool-summary-table">' +
+                    '<thead><tr><th>Function</th><th style="text-align:right">Calls</th></tr></thead>' +
+                    '<tbody>' + rows + '</tbody>' +
+                    '</table>';
+                toolSummaryFooter.textContent = data.total_calls + " calls across " + data.unique_functions + " functions";
+            })
+            .catch(function() {
+                toolSummaryBody.innerHTML = '<div style="padding:16px;color:#f87171">Failed to load summary.</div>';
+            });
+    });
+
+    document.getElementById("tool-summary-close").addEventListener("click", function() {
+        toolSummaryOverlay.classList.remove("active");
+    });
+    toolSummaryOverlay.addEventListener("click", function(e) {
+        if (e.target === toolSummaryOverlay) toolSummaryOverlay.classList.remove("active");
     });
 
     tbody.addEventListener("click", function(e) {

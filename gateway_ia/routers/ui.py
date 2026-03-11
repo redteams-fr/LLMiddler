@@ -303,6 +303,27 @@ async def api_sessions(request: Request):
     }
 
 
+@router.get("/api/tool-calls-summary")
+async def api_tool_calls_summary(request: Request):
+    store = request.app.state.store
+    sessions = [s for s in store.list_all() if "favico" not in s.path and "_ui" not in s.path]
+    counts: dict[str, int] = {}
+    for s in sessions:
+        for name in _extract_tool_call_names(s):
+            counts[name] = counts.get(name, 0) + 1
+    summary = sorted(
+        [{"name": name, "count": count} for name, count in counts.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+    total_calls = sum(item["count"] for item in summary)
+    return {
+        "tools": summary,
+        "total_calls": total_calls,
+        "unique_functions": len(summary),
+    }
+
+
 @router.post("/sessions/clear")
 async def clear_sessions(request: Request):
     store = request.app.state.store
