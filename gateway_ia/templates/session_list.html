@@ -655,6 +655,31 @@
     });
 
     // Tool Calls Summary modal
+    function formatArgs(args) {
+        if (!args || (typeof args === "object" && !Object.keys(args).length)) {
+            return '<span style="color:#484f58">(no arguments)</span>';
+        }
+        if (typeof args === "string") return escapeHtml(args);
+        return Object.keys(args).map(function(key) {
+            var val = args[key];
+            var valStr = typeof val === "string" ? val : JSON.stringify(val);
+            if (valStr.length > 200) valStr = valStr.substring(0, 200) + "...";
+            return '<span class="tool-arg-key">' + escapeHtml(key) + '</span>: ' +
+                '<span class="tool-arg-value">' + escapeHtml(valStr) + '</span>';
+        }).join("\n");
+    }
+
+    function renderCallHistory(calls) {
+        return '<ul class="tool-call-history">' +
+            calls.map(function(c) {
+                return '<li class="tool-call-entry">' +
+                    '<div class="tool-call-entry-header">' + escapeHtml(c.time) + '</div>' +
+                    '<div class="tool-call-entry-args">' + formatArgs(c.arguments) + '</div>' +
+                    '</li>';
+            }).join("") +
+            '</ul>';
+    }
+
     btnToolSummary.addEventListener("click", function() {
         toolSummaryBody.innerHTML = '<div style="padding:16px;color:#8b949e">Loading...</div>';
         toolSummaryFooter.textContent = "";
@@ -668,10 +693,16 @@
                     toolSummaryFooter.textContent = "";
                     return;
                 }
-                var rows = data.tools.map(function(t) {
-                    return '<tr>' +
-                        '<td class="tool-summary-name">' + escapeHtml(t.name) + '</td>' +
+                var rows = data.tools.map(function(t, i) {
+                    return '<tr class="tool-summary-row" data-idx="' + i + '">' +
+                        '<td class="tool-summary-name">' +
+                            '<span class="tool-summary-chevron">&#x25B6;</span>' +
+                            escapeHtml(t.name) +
+                        '</td>' +
                         '<td class="tool-summary-count">' + t.count + '</td>' +
+                        '</tr>' +
+                        '<tr class="tool-summary-detail" data-idx="' + i + '">' +
+                        '<td colspan="2">' + renderCallHistory(t.calls) + '</td>' +
                         '</tr>';
                 }).join("");
                 toolSummaryBody.innerHTML =
@@ -684,6 +715,12 @@
             .catch(function() {
                 toolSummaryBody.innerHTML = '<div style="padding:16px;color:#f87171">Failed to load summary.</div>';
             });
+    });
+
+    // Toggle expand on click (event delegation)
+    toolSummaryBody.addEventListener("click", function(e) {
+        var row = e.target.closest(".tool-summary-row");
+        if (row) row.classList.toggle("expanded");
     });
 
     document.getElementById("tool-summary-close").addEventListener("click", function() {

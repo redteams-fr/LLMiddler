@@ -124,6 +124,23 @@ def _extract_tool_call_names(session) -> list[str]:
         return []
 
 
+def _extract_tool_calls_detail(session) -> list[dict]:
+    """Extract full tool call objects (name + arguments) from a session's response."""
+    if not session.response_body:
+        return []
+    try:
+        decoded = _decode_body(session.response_body)
+        if session.is_streaming:
+            _, tc_list, _ = _aggregate_sse(decoded)
+            return tc_list or []
+        else:
+            parsed = json.loads(decoded)
+            msg = parsed.get("choices", [{}])[0].get("message", {})
+            return msg.get("tool_calls") or []
+    except Exception:
+        return []
+
+
 def _has_tool_calls(session) -> bool:
     """Check if a session's response contains tool_calls."""
     return bool(_extract_tool_call_names(session))
@@ -307,12 +324,25 @@ async def api_sessions(request: Request):
 async def api_tool_calls_summary(request: Request):
     store = request.app.state.store
     sessions = [s for s in store.list_all() if "favico" not in s.path and "_ui" not in s.path]
-    counts: dict[str, int] = {}
+    grouped: dict[str, list[dict]] = {}
     for s in sessions:
-        for name in _extract_tool_call_names(s):
-            counts[name] = counts.get(name, 0) + 1
+        session_time = _localtime(s.created_at).strftime("%H:%M:%S")
+        for tc in _extract_tool_calls_detail(s):
+            fn = tc.get("function", {})
+            name = fn.get("name", "")
+            if not name:
+                continue
+            args_raw = fn.get("arguments", "")
+            try:
+                args = json.loads(args_raw) if args_raw else {}
+            except (json.JSONDecodeError, TypeError):
+                args = args_raw
+            grouped.setdefault(name, []).append({
+                "time": session_time,
+                "arguments": args,
+            })
     summary = sorted(
-        [{"name": name, "count": count} for name, count in counts.items()],
+        [{"name": name, "count": len(calls), "calls": calls} for name, calls in grouped.items()],
         key=lambda x: x["count"],
         reverse=True,
     )

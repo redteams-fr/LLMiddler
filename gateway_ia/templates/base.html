@@ -511,6 +511,49 @@
             font-weight: 600;
         }
         .btn-toolcalls:hover { background: #3d2b5e; border-color: #d2a8ff77; }
+        .tool-summary-table tr.tool-summary-row { cursor: pointer; }
+        .tool-summary-row .tool-summary-chevron {
+            display: inline-block;
+            font-size: 10px;
+            color: #484f58;
+            margin-right: 6px;
+            transition: transform 0.15s;
+        }
+        .tool-summary-row.expanded .tool-summary-chevron { transform: rotate(90deg); }
+        .tool-summary-detail { display: none; }
+        .tool-summary-row.expanded + .tool-summary-detail { display: table-row; }
+        .tool-summary-detail td {
+            padding: 0 16px 8px 16px;
+            border-bottom: 1px solid #21262d;
+        }
+        .tool-call-history {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .tool-call-entry {
+            padding: 6px 10px;
+            margin-bottom: 4px;
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 4px;
+        }
+        .tool-call-entry:last-child { margin-bottom: 0; }
+        .tool-call-entry-header {
+            font-size: 10px;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+        .tool-call-entry-args {
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 11px;
+            color: #c9d1d9;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.4;
+        }
+        .tool-call-entry-args .tool-arg-key { color: #7ee787; }
+        .tool-call-entry-args .tool-arg-value { color: #c9d1d9; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
