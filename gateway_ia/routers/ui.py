@@ -87,20 +87,46 @@ def _aggregate_sse(value: str) -> tuple[str, list[dict] | None, dict | None]:
     return (text, tc_list, usage)
 
 
-def _has_tool_calls(session) -> bool:
-    """Check if a session's response contains tool_calls."""
+def _extract_tool_call_names(session) -> list[str]:
+    """Extract function names from tool_calls in a session's response."""
     if not session.response_body:
-        return False
+        return []
     try:
         decoded = _decode_body(session.response_body)
         if session.is_streaming:
-            return '"tool_calls"' in decoded
+            names: list[str] = []
+            for line in decoded.splitlines():
+                if not line.startswith("data: "):
+                    continue
+                payload = line[len("data: "):]
+                if payload == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload)
+                    for choice in chunk.get("choices", []):
+                        for tc in choice.get("delta", {}).get("tool_calls", []):
+                            name = tc.get("function", {}).get("name")
+                            if name and name not in names:
+                                names.append(name)
+                except (json.JSONDecodeError, TypeError, KeyError):
+                    continue
+            return names
         else:
             parsed = json.loads(decoded)
             msg = parsed.get("choices", [{}])[0].get("message", {})
-            return bool(msg.get("tool_calls"))
+            tc_list = msg.get("tool_calls") or []
+            return [
+                tc.get("function", {}).get("name", "")
+                for tc in tc_list
+                if tc.get("function", {}).get("name")
+            ]
     except Exception:
-        return False
+        return []
+
+
+def _has_tool_calls(session) -> bool:
+    """Check if a session's response contains tool_calls."""
+    return bool(_extract_tool_call_names(session))
 
 
 def _extract_usage(session) -> dict | None:
@@ -150,6 +176,7 @@ templates.env.filters["format_duration"] = _format_duration
 templates.env.filters["aggregate_sse"] = lambda v: _aggregate_sse(v)[0]
 templates.env.filters["usage_total"] = _extract_usage_total
 templates.env.filters["has_tool_calls"] = _has_tool_calls
+templates.env.filters["tool_call_names"] = _extract_tool_call_names
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -263,6 +290,7 @@ async def api_sessions(request: Request):
             "duration_ms": s.duration_ms,
             "is_streaming": s.is_streaming,
             "has_tool_calls": _has_tool_calls(s),
+            "tool_call_names": _extract_tool_call_names(s),
             "total_tokens": usage.get("total_tokens") if usage else None,
         })
     return {

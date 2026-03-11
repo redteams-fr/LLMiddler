@@ -52,8 +52,15 @@
                 {% if s.is_streaming %}
                 <span class="badge badge-streaming">stream</span>
                 {% endif %}
-                {% if s | has_tool_calls %}
+                {% set tc_names = s | tool_call_names %}
+                {% if tc_names %}
                 <span class="badge badge-toolcall">tool</span>
+                {% for name in tc_names[:3] %}
+                <span class="tool-chip" title="{{ name }}">{{ name }}</span>
+                {% endfor %}
+                {% if tc_names | length > 3 %}
+                <span class="tool-chip-more">+{{ tc_names | length - 3 }}</span>
+                {% endif %}
                 {% endif %}
             </td>
             <td>{% set tokens = s | usage_total %}{{ tokens if tokens else '-' }}</td>
@@ -377,9 +384,19 @@
         const streamHtml = s.is_streaming
             ? '<span class="badge badge-streaming">stream</span>'
             : "";
-        const toolHtml = s.has_tool_calls
-            ? '<span class="badge badge-toolcall">tool</span>'
-            : "";
+        let toolHtml = "";
+        if (s.tool_call_names && s.tool_call_names.length) {
+            toolHtml = '<span class="badge badge-toolcall">tool</span>';
+            const names = s.tool_call_names.slice(0, 3);
+            toolHtml += names.map(function(n) {
+                return '<span class="tool-chip" title="' + escapeHtml(n) + '">' + escapeHtml(n) + '</span>';
+            }).join("");
+            if (s.tool_call_names.length > 3) {
+                toolHtml += '<span class="tool-chip-more">+' + (s.tool_call_names.length - 3) + '</span>';
+            }
+        } else if (s.has_tool_calls) {
+            toolHtml = '<span class="badge badge-toolcall">tool</span>';
+        }
         const tokensHtml = s.total_tokens ? s.total_tokens : "-";
         return `<tr data-id="${s.id}" style="cursor:pointer">
             <td><span class="badge badge-${s.status}">${s.status}</span></td>
